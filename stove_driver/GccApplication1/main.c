@@ -8,11 +8,15 @@
 #include <avr/io.h>
 #include <stdbool.h>
 #include <avr/interrupt.h>
+#include <avr/eeprom.h>
 #include <string.h>
 
 #include "chars.h"
 #include "ds18b20.h"
 //#define _BV(x) (1<<x)
+
+#define STORAGE_SIZE 5
+#define EEPROM_ADDR 10
 
 #define PIN_UP 3
 #define PIN_SET	2
@@ -29,8 +33,8 @@
 
 #define ALED_DDR  DDRD
 #define ALED_PORT PORTD
-#define ALED1 4
-#define ALED2 5
+#define ALED1 5
+#define ALED2 4
 
 #define PUMP_DDR DDRC
 #define PUMP_PORT PORTC
@@ -41,10 +45,10 @@
 #define PUMP_OFF()  {PUMP_PORT |= _BV(PUMP);}
 
 // TODO - checkout
-#define BUTTON_TIMEOUT  8*3
-#define BUTTON_FAST 4 * 3
-#define BUTTON_VFAST 7
-#define MENU_TIMEOUT 1000
+#define BUTTON_TIMEOUT  7*3
+#define BUTTON_FAST BUTTON_TIMEOUT/2 //4 * 3
+#define BUTTON_VFAST BUTTON_FAST/2 //7
+#define MENU_TIMEOUT 1000 // ok. 11s na fabrycznych fusebitach
 #define BLINK_TIMEOUT 4*3
 #define MEASURE_TIMEOUT 1000
 
@@ -64,7 +68,7 @@ typedef struct {
 	uint8_t actual_temp;
 }value_storage_t;
 
-uint8_t value_storage[5] = {0};
+uint8_t value_storage[STORAGE_SIZE] = {0};
 
 volatile bool btn_enter = false;
 volatile menu_position_t menu_pos = SHOW_TEMP;
@@ -108,6 +112,21 @@ static uint8_t BOTTOM_LIMIT[] =
 	0
 };
 
+void eeprom_save_config(void)
+{
+	for(uint8_t i=0; i<STORAGE_SIZE-1; i++)
+	{
+		eeprom_update_byte((uint8_t*)(EEPROM_ADDR+i), value_storage[i]);
+	}
+}
+
+void eeprom_load_config(void)
+{
+	for(uint8_t i=0; i<STORAGE_SIZE-1; i++)
+	{
+		value_storage[i] = eeprom_read_byte((uint8_t*)(EEPROM_ADDR+i));
+	}
+}
 
 //value_storage_t value_storage;
 static uint8_t high, low;
@@ -202,7 +221,7 @@ void update_screen(uint8_t screen_nr)
 // TODO - write control mechanism for option values (separate manager)
 void state_machine(void *args)
 {
-	// clear timeout timer printin actual temp
+	// clear timeout timer printing actual temp
 	if(value)
 	{
 		menu_timeout = 0;
@@ -232,7 +251,8 @@ void state_machine(void *args)
 		if(SAVE == menu_pos)
 		{
 			state_entered = false;
-			//TODO save data into eeprom
+			// save data to nonvolatile eeprom memory
+			eeprom_save_config();
 			menu_pos+=1;
 		}
 		else
@@ -417,13 +437,13 @@ int main(void)
 	temp_cnt_delay.in_delay = false;
 	
 	// set limit values
-	memcpy(value_storage, BOTTOM_LIMIT, sizeof(BOTTOM_LIMIT));
+	//memcpy(value_storage, BOTTOM_LIMIT, sizeof(BOTTOM_LIMIT));
 		
 	init();
+	PUMP_OFF();
+	eeprom_load_config();
 	
-	// TODO - read default config from eeprom
-	
-    while (1) 
+	while (true) 
     {
 		if(MENU_TIMEOUT <= menu_timeout)
 		{
